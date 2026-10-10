@@ -218,3 +218,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Test medyası (telifli içerik) ve koşu çıktıları depoya girmez
+docs/
+outputs/

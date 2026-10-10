@@ -1,0 +1,5 @@
+imageio-ffmpeg==0.6.0
+jiwer==4.0.0
+numpy==2.5.3
+requests==2.34.2
+yt-dlp==2026.8.19
