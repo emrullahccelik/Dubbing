@@ -1,0 +1,4 @@
+*
+!requirements.txt
+!dub/
+**/__pycache__

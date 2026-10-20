@@ -1,0 +1,21 @@
+services:
+  dub:
+    build: .
+    image: dubbing:latest
+    ports:
+      - "8000:8000"
+    env_file: .env            # OPENROUTER_API_KEY
+    volumes:
+      - ./data:/app/data              # işler ve çıktılar (data/web/<id>/)
+      - model-cache:/cache            # OmniVoice ve Demucs ağırlıkları, ilk çalıştırmada iner
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  model-cache:

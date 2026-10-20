@@ -1,5 +1,18 @@
+# Dublaj hattı ve web arayüzü (Python 3.12)
+torch==2.14.1
+torchaudio==2.11.0
+omnivoice==0.2.1
+transformers==5.19.0
+accelerate==1.15.0
+demucs==4.1.0
+numpy==2.5.4
+soundfile==0.14.0
 imageio-ffmpeg==0.6.0
-jiwer==4.0.0
-numpy==2.5.3
 requests==2.34.2
+fastapi==0.156.1
+uvicorn==0.54.0
+python-multipart==0.0.32
+
+# ASR karşılaştırma araçları (stt/)
+jiwer==4.0.0
 yt-dlp==2026.8.19
