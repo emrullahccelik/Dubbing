@@ -1,35 +1,36 @@
 # Dubbing
 
-Bir video ya da ses kaydını başka bir dile, **konuşmacıların kendi sesleriyle** dublajlayan hat.
-Konuşma metne çevrilir, bağlamı korunarak tercüme edilir, her cümle orijinal konuşmacının sesi klonlanarak
-yeniden seslendirilir ve müzik, gülüşme gibi arka plan sesleriyle birlikte videoya geri yerleştirilir.
+A pipeline that dubs a video or audio recording into another language **in the speakers' own voices**.
+Speech is transcribed, translated with its context preserved, and each line is re-voiced with a clone of the
+original speaker's voice. The result is placed back into the video together with the background audio, such as
+music and laughter.
 
-Komut satırından ya da web arayüzünden kullanılabilir; Docker ile de çalıştırılabilir.
+It can be used from the command line or a web interface, and can also be run with Docker.
 
-## Örnek
+## Example
 
-BBC Learning English'in 2,5 dakikalık bir bölümü (5 konuşmacı), İngilizceden üç dile:
+A 2.5-minute BBC Learning English episode (5 speakers), dubbed from English into three languages:
 
-**Orijinal (İngilizce)**
+**Original (English)**
 
 https://github.com/user-attachments/assets/27465ca9-900d-493f-8b22-fc0af6801f66
 
-**Türkçe dublaj**
+**Turkish dub**
 
 https://github.com/user-attachments/assets/6c9373d7-d54a-4742-8a65-69a980c1c7cb
 
-**Almanca dublaj**
+**German dub**
 
 https://github.com/user-attachments/assets/815d7518-5b10-419c-9426-c24ae0e9ce3f
 
-**Fransızca dublaj**
+**French dub**
 
 https://github.com/user-attachments/assets/a43ef6f5-c074-45f5-bcc6-6fdc66cc108a
 
-Yalnızca ses: [original_en.mp3](samples/original_en.mp3) · [dub_tr.mp3](samples/dub_tr.mp3) ·
+Audio only: [original_en.mp3](samples/original_en.mp3) · [dub_tr.mp3](samples/dub_tr.mp3) ·
 [dub_de.mp3](samples/dub_de.mp3) · [dub_fr.mp3](samples/dub_fr.mp3)
 
-Örnek bir satır:
+A sample line:
 
 | | |
 | --- | --- |
@@ -38,138 +39,145 @@ Yalnızca ses: [original_en.mp3](samples/original_en.mp3) · [dub_tr.mp3](sample
 | DE | Nein, bin ich auch nicht. Ich komme gerade vom Team. Wir arbeiten an einem Projekt, und die machen einfach alles falsch. |
 | FR | Non, pas vraiment. Je sors d'une réunion avec le reste de l'équipe. On travaille sur un projet, et ils se trompent sur tout. |
 
-## Nasıl çalışır
+## How it works
 
 ```
-video / ses
+video / audio
    │
-   ├─ 1. ASR ─────────── konuşma → metin, kelime zaman damgaları, konuşmacı ayrımı
-   ├─ 2. Analiz ──────── konu, üslup, konuşmacılar ve sözlük
-   ├─ 3. Çeviri ──────── 20'şerli bloklar hâlinde, bağlam ve sözlükle
-   ├─ 4. Ses klonlama ── her cümle orijinal konuşmacının sesiyle, orijinal süresinde
-   ├─ 5. Arka plan ───── müzik, ortam sesi ve konuşma arasındaki gülüşmeler ayrıştırılır
-   └─ 6. Miks ────────── cümleler zaman çizelgesine yerleşir, arka planla karışır, videoya eklenir
+   ├─ 1. ASR ──────────── speech → text, word timestamps, speaker diarization
+   ├─ 2. Analysis ─────── topic, tone, speakers and glossary
+   ├─ 3. Translation ──── in blocks of 20 lines, with context and glossary
+   ├─ 4. Voice cloning ── each line in the original speaker's voice, at its original length
+   ├─ 5. Background ───── music, ambience and laughter between lines are separated out
+   └─ 6. Mix ──────────── lines are placed on the timeline, mixed with the background, added to the video
 ```
 
-**1. ASR** — [ElevenLabs Scribe v2](https://elevenlabs.io/speech-to-text) (OpenRouter üzerinden). Kelimeler
-konuşmacı değişiminde, uzun sessizlikte ya da uzun cümlelerin sonunda segmentlere bölünür. `[güler]`,
-`[music]` gibi konuşma dışı işaretler seslendirilecek metinden ayıklanır, zamanlarıyla ayrıca saklanır.
+**1. ASR**: [ElevenLabs Scribe v2](https://elevenlabs.io/speech-to-text) (via OpenRouter). Words are split into
+segments at speaker changes, at long pauses, or at the end of a sentence once a segment gets long. Non-speech tags
+such as `[laughter]` and `[music]` are removed from the text to be voiced and stored separately with their
+timestamps.
 
-**2. Analiz** — Bütün döküm bir kez LLM'e verilir. Model içeriğin ne olduğunu, üslubunu ve konuşmacıları özetler,
-bir sözlük çıkarır: özel isimler, marka ve program adları, terimler ve çevrilmeden kalması gereken ifadeler
-(örneğin bir İngilizce dersinde öğretilen deyim).
+**2. Analysis**: The full transcript is sent to the LLM once. The model summarizes what the content is, its tone
+and its speakers, and extracts a glossary: proper names, brand and show names, terms, and expressions that must
+stay untranslated (for example, an idiom being taught in an English lesson).
 
-**3. Çeviri** — Segmentler tek tek değil 20'şerli bloklar hâlinde çevrilir. Her blokla birlikte analiz özeti,
-sözlük, önceki satırlar (çevirileriyle) ve sonraki satırlar gönderilir; böylece çeviri doğal ve tutarlı olur.
-Her satırın konuşma süresi de verilir, çeviri o sürede söylenebilecek uzunlukta tutulur. Model yeni bir terime
-karar verirse sözlüğe eklenir ve sonraki bloklarda kullanılır. Varsayılan model `anthropic/claude-sonnet-5.5`;
-OpenRouter'daki herhangi bir modelle değiştirilebilir.
+**3. Translation**: Segments are translated in blocks of 20 rather than one by one. Each block is sent with the
+analysis summary, the glossary, the preceding lines (with their translations) and the following lines, so the
+translation stays natural and consistent. Each line's speaking time is included too, and the translation is kept
+short enough to be spoken in that time. When the model settles on a translation for a new term, it is added to
+the glossary and used in later blocks. The default model is `anthropic/claude-sonnet-5.5`; any model on
+OpenRouter can be used instead.
 
-**4. Ses klonlama** — [OmniVoice](https://huggingface.co/k2-fsa/OmniVoice). Her cümle orijinal süresi hedef
-verilerek üretilir. Referans ses:
-- Cümle 3 saniyeden uzunsa **kendi orijinal kaydı**; cümlenin duygusu ve tonlaması da aktarılır.
-- Daha kısaysa konuşmacının **ortak referansı**: en uzun cümlelerinden kesilip birleştirilen ~10 saniyelik kayıt.
+**4. Voice cloning**: [OmniVoice](https://huggingface.co/k2-fsa/OmniVoice). Each line is generated with its
+original duration as the target. The reference voice is:
+- the line's **own original recording** if it is longer than 3 seconds, so the line's emotion and intonation carry
+  over too;
+- otherwise the speaker's **shared reference**: about 10 seconds cut from the speaker's longest lines and joined
+  together.
 
-**5. Arka plan** — [Demucs](https://github.com/adefossez/demucs) (`htdemucs_ft`) orijinal sesi konuşma
-ve geri kalan olarak ayırır. Gülüşme, alkış gibi insan sesleri çoğunlukla konuşma tarafına düştüğü için konuşma
-kanalının yalnızca cümlelerin dışında kalan kısmı korunur; cümle içinde sessize alınır.
+**5. Background**: [Demucs](https://github.com/adefossez/demucs) (`htdemucs_ft`) separates the original audio into
+speech and everything else. Human sounds such as laughter and applause mostly end up in the speech channel, so
+only the parts of the speech channel outside the lines are kept; inside the lines it is muted.
 
-**6. Miks** — Her cümle orijinal başlangıç zamanına yerleşir. Üretilen ses, sonraki cümleye kadar olan boşluğa
-sığıyorsa olduğu gibi kalır (kısaysa yavaşlatılmaz); sığmıyorsa tonu korunarak sığacak kadar hızlandırılır.
-Sonuç arka planla karıştırılır; girdi videoysa görüntü yeniden kodlanmadan yeni sesle birleştirilir.
+**6. Mix**: Each line is placed at its original start time. If the generated audio fits in the gap before the next
+line, it is left as is (short lines are not slowed down); if not, it is sped up just enough to fit, keeping its
+pitch. The result is mixed with the background; for a video input, the new audio is muxed in without re-encoding
+the picture.
 
-## Proje yapısı
+## Project structure
 
 ```
 dub/
-├── asr.py          1. ElevenLabs Scribe ile döküm, segmentleme, işaret ayıklama
-├── translate.py    2–3. LLM istemcisi (OpenRouter), analiz ve bloklu çeviri
-├── tts.py          4. Referans hazırlama ve OmniVoice ile seslendirme
-├── separate.py     5. Demucs ile arka plan ayrıştırma
-├── mix.py          6. Yerleştirme, hızlandırma, karıştırma, video birleştirme
-├── pipeline.py     Adımları sırayla çalıştıran Pipeline sınıfı ve komut satırı
-├── common.py       Yollar, API anahtarı, ffmpeg yardımcıları
+├── asr.py          1. Transcription with ElevenLabs Scribe, segmentation, tag removal
+├── translate.py    2–3. LLM client (OpenRouter), analysis and block translation
+├── tts.py          4. Reference preparation and voice generation with OmniVoice
+├── separate.py     5. Background separation with Demucs
+├── mix.py          6. Placement, speed-up, mixing, video muxing
+├── pipeline.py     Pipeline class that runs the steps in order, and the command line
+├── common.py       Paths, API key, ffmpeg helpers
 └── web/
-    ├── app.py      FastAPI sunucusu: yükleme, iş sırası, ilerleme, indirme
-    └── static/     Tek sayfalık arayüz
-samples/            README'deki örnek sesler
-data/               Çalışma çıktıları
+    ├── app.py      FastAPI server: upload, job queue, progress, download
+    └── static/     Single-page interface
+samples/            Sample audio from this README
+data/               Run outputs
 Dockerfile, docker-compose.yml, requirements.txt
 ```
 
-## Kurulum
+## Setup
 
-Gereksinimler: Python 3.12, NVIDIA GPU (seslendirme ~2.3 GB VRAM kullanıyor; 4 GB'lık kartta çalışıyor) ve
-[OpenRouter](https://openrouter.ai/keys) API anahtarı. ffmpeg ayrıca kurulmaz, `imageio-ffmpeg` paketiyle gelir.
+Requirements: Python 3.12, an NVIDIA GPU (voice generation uses about 2.3 GB of VRAM and runs on a 4 GB card), and
+an [OpenRouter](https://openrouter.ai/keys) API key. ffmpeg does not need to be installed separately; it ships with
+the `imageio-ffmpeg` package.
 
 ```bash
 python3.12 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-cp .env.example .env        # OPENROUTER_API_KEY değerini doldur
+cp .env.example .env        # fill in OPENROUTER_API_KEY
 ```
 
-Model ağırlıkları (OmniVoice, Demucs) ilk çalıştırmada indirilir.
+Model weights (OmniVoice, Demucs) are downloaded on the first run.
 
-## Kullanım
+## Usage
 
-### Web arayüzü
+### Web interface
 
 ```bash
 .venv/bin/python -m dub.web            # http://localhost:8000
 ```
 
-Dosyayı sürükleyip bırak, kaynak (ya da otomatik algılama) ve hedef dili seç. Her adımın ilerlemesi ayrı ayrı
-görünür; bittiğinde sonuç sayfada oynatılır ve indirilir. Çeviri, orijinaliyle yan yana tablo olarak gösterilir.
-İşler GPU'da sırayla çalışır; hata alan bir iş kaldığı yerden yeniden denenebilir.
+Drag and drop a file, then choose the source language (or automatic detection) and the target language. Progress
+is shown for each step separately; when the job is done, the result plays on the page and can be downloaded. The
+translation is shown in a table next to the original. Jobs run one at a time on the GPU, and a failed job can be
+retried from where it stopped.
 
-### Komut satırı
+### Command line
 
 ```bash
 .venv/bin/python -m dub.pipeline --input video.mp4 --target tr
-.venv/bin/python -m dub.pipeline --input kayit.mp3 --source en --target de --llm google/gemini-3.8-flash
+.venv/bin/python -m dub.pipeline --input recording.mp3 --source en --target de --llm google/gemini-3.8-flash
 ```
 
-| Seçenek | Açıklama |
+| Option | Description |
 | --- | --- |
-| `--target` | Hedef dil (ISO-639-1: `tr`, `en`, `de`, `fr`, `es`, …) |
-| `--source` | Kaynak dil; verilmezse ASR algılar |
-| `--llm` | Çeviri için OpenRouter model kimliği |
-| `--batch` | Tek seferde çevrilen segment sayısı (varsayılan 20) |
-| `--ref` | `segment` (varsayılan) ya da `speaker`: her cümle konuşmacının ortak referansıyla |
-| `--no-background` | Orijinal arka plan sesini ekleme |
-| `--until <adım>` | O adımdan sonra dur (`asr`, `analysis`, `translation`, `tts`, `separation`, `mix`) |
-| `--redo <adım>` | O adımı ve sonrakileri baştan çalıştır |
-| `--job` | Çıktı klasörünün adı |
+| `--target` | Target language (ISO-639-1: `tr`, `en`, `de`, `fr`, `es`, …) |
+| `--source` | Source language; detected by ASR if omitted |
+| `--llm` | OpenRouter model ID for translation |
+| `--batch` | Number of segments translated per request (default 20) |
+| `--ref` | `segment` (default) or `speaker`: every line uses the speaker's shared reference |
+| `--no-background` | Do not add the original background audio |
+| `--until <step>` | Stop after this step (`asr`, `analysis`, `translation`, `tts`, `separation`, `mix`) |
+| `--redo <step>` | Rerun this step and all steps after it |
+| `--job` | Name of the output folder |
 
 ### Docker
 
-Ana makinede NVIDIA sürücüsü ve [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) gerekir.
+The host needs the NVIDIA driver and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html).
 
 ```bash
 docker compose up --build              # http://localhost:8000
 ```
 
-Çıktılar `./data` klasörüne, model ağırlıkları `model-cache` volume'una yazılır. API anahtarı `.env`'den okunur.
+Outputs are written to `./data` and model weights to the `model-cache` volume. The API key is read from `.env`.
 
-## Çıktılar
+## Outputs
 
-Her iş kendi klasöründe: komut satırında `data/pipeline/<dosya>_<hedef dil>/`, web arayüzünde `data/web/<id>/`.
-Her adımın sonucu JSON olarak kaydedilir; dosyası olan adım tekrar çalıştırılmaz, okunur.
+Each job has its own folder: `data/pipeline/<file>_<target language>/` from the command line, `data/web/<id>/` from
+the web interface. Each step's result is saved as JSON; a step whose file already exists is read instead of rerun.
 
-| Dosya | İçerik |
+| File | Contents |
 | --- | --- |
-| `01_asr.json` | Segmentler, kelimeler, konuşma dışı sesler |
-| `02_analysis.json` | Özet, üslup, konuşmacılar, sözlük |
-| `03_translation.json` | Orijinal ve çeviri yan yana, son sözlük, LLM kullanımı ve maliyeti |
-| `04_tts.json` | Kullanılan referanslar, segment başına üretilen ses ve süre |
-| `05_separation.json` | Ayrıştırılan kanallar |
-| `06_mix.json` | Segment yerleşimi ve hızlandırma oranları |
-| `refs/`, `tts/`, `separation/` | Referans sesler, seslendirilen segmentler, ayrıştırılmış kanallar |
-| `final/dub.mp4` · `final/dub.m4a` · `final/dub.wav` | Sonuç: video ya da ses, ve sıkıştırılmamış ses |
+| `01_asr.json` | Segments, words, non-speech sounds |
+| `02_analysis.json` | Summary, tone, speakers, glossary |
+| `03_translation.json` | Original and translation side by side, final glossary, LLM usage and cost |
+| `04_tts.json` | References used, generated audio and duration per segment |
+| `05_separation.json` | Separated channels |
+| `06_mix.json` | Segment placement and speed-up factors |
+| `refs/`, `tts/`, `separation/` | Reference audio, voiced segments, separated channels |
+| `final/dub.mp4` · `final/dub.m4a` · `final/dub.wav` | Result: video or audio, plus uncompressed audio |
 
-## Notlar
+## Notes
 
-- OmniVoice ağırlıkları ticari olmayan kullanım lisanslıdır (CC-BY-NC).
-- Kaynak dilden hedef dile geçerken metin çok uzuyorsa (ör. Türkçeden İngilizceye hızlı konuşmalar) cümleler
-  belirgin şekilde hızlandırılabilir.
-- Uzun kayıtlar ASR'a tek istekte gönderilir.
+- The OmniVoice weights are licensed for non-commercial use only (CC-BY-NC).
+- When the translation is much longer than the source (for example, fast Turkish speech dubbed into English), lines
+  may be sped up noticeably.
+- Long recordings are sent to ASR in a single request.
