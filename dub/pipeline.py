@@ -15,7 +15,8 @@ Kullanım (~/.venvs/dub ortamında, kurulum: requirements.txt):
     05_separation.json   orijinal sesin ayrıştırılması (separation/): konuşma, arka plan, bed
     06_mix.json          segment yerleşimi ve hızlandırma; final/dub.mp4 (video) ya da final/dub.m4a (ses), dub.wav
 
-Bir adımın dosyası varsa yeniden çalıştırılmaz, okunur. --redo <adım> o adımı ve sonrakileri baştan çalıştırır.
+Bir adımın dosyası varsa yeniden çalıştırılmaz, okunur. --redo <adım> o adımı ve sonrakileri baştan çalıştırır,
+--until <adım> o adımdan sonra durur. --ref speaker ile her segment konuşmacının ortak referansıyla üretilir.
 """
 from __future__ import annotations
 
@@ -47,14 +48,16 @@ Progress = Callable[[str, float, float, str], None]
 
 class Pipeline:
     def __init__(self, asr: ElevenLabsASR, translator: LLMTranslator, tts: OmniVoiceTTS,
-                 separator: DemucsSeparator | None = None):
+                 separator: DemucsSeparator | None = None, self_ref: bool = True):
         self.asr = asr
         self.translator = translator
         self.tts = tts
         self.separator = separator  # None ise arka plan eklenmez
+        self.self_ref = self_ref    # uzun segment kendi kaydını referans alsın mı (bkz. dub/tts.py)
 
     def run(self, source: Path, target: str, source_lang: str | None, out: Path,
-            redo: str | None = None, progress: Progress | None = None) -> dict:
+            redo: str | None = None, progress: Progress | None = None, until: str | None = None) -> dict:
+        """until verilirse o adımdan sonra durur ve o adımın çıktısını döndürür."""
         source = source.resolve()
         out.mkdir(parents=True, exist_ok=True)
         redo_from = STEP_KEYS.index(redo) if redo else len(STEPS)
@@ -81,6 +84,8 @@ class Pipeline:
 
         audio = extract_wav(source, out / "audio.wav")
         asr = step("asr", lambda p: self.asr.transcribe(audio, source_lang))
+        if until == "asr":
+            return asr
         src = source_lang or asr["language"]
         if src == target:
             raise ValueError(f"Kaynak ve hedef dil aynı: {src}")
@@ -95,6 +100,8 @@ class Pipeline:
                     "llm_usage": dict(self.translator.llm.usage)}
 
         analysis = step("analysis", analyze)
+        if until == "analysis":
+            return analysis
 
         def translate(p) -> dict:
             self.translator.llm.reset_usage()
@@ -113,21 +120,27 @@ class Pipeline:
                     "glossary": res["glossary"], "batches": res["batches"], "llm_usage": dict(self.translator.llm.usage)}
 
         translation = step("translation", translate)
+        if until == "translation":
+            return translation
 
         def clone(p) -> dict:
             p(0.0, "Konuşmacı referansları hazırlanıyor")
-            refs = build_refs(source, segments, asr["words"], out / "refs")
+            refs = build_refs(source, segments, asr["words"], out / "refs", self.self_ref)
             p(0.02, "OmniVoice yükleniyor")
             run = self.tts.synthesize(
                 translation["segments"], target, refs, out, out / "tts",
                 on_segment=lambda n, total, row: p(0.05 + 0.95 * n / total, f"Seslendirme: {n}/{total} segment"))
-            return {"refs": refs, **run}
+            return {"self_ref": self.self_ref, "refs": refs, **run}
 
         tts = step("tts", clone)
+        if until == "tts":
+            return tts
 
         sep = None
         if self.separator is not None:
             sep = step("separation", lambda p: self.separator.separate(source, segments, out / "separation"))
+            if until == "separation":
+                return sep
 
         is_video = has_video(source)
         return step("mix", lambda p: mix(tts, out, asr["duration_sec"],
@@ -135,9 +148,10 @@ class Pipeline:
                                          out / "final"))
 
 
-def default_pipeline(llm: str = "anthropic/claude-sonnet-5.5", batch: int = 20, background: bool = True) -> Pipeline:
+def default_pipeline(llm: str = "anthropic/claude-sonnet-5.5", batch: int = 20, background: bool = True,
+                     self_ref: bool = True) -> Pipeline:
     return Pipeline(ElevenLabsASR(), LLMTranslator(llm, batch_size=batch), OmniVoiceTTS(),
-                    DemucsSeparator() if background else None)
+                    DemucsSeparator() if background else None, self_ref)
 
 
 def main() -> None:
@@ -150,6 +164,9 @@ def main() -> None:
     ap.add_argument("--batch", type=int, default=20, help="LLM'e tek seferde verilen segment sayısı")
     ap.add_argument("--no-background", action="store_true", help="orijinal arka plan sesini ekleme")
     ap.add_argument("--redo", choices=STEP_KEYS, help="bu adımı ve sonrakileri baştan çalıştır")
+    ap.add_argument("--until", choices=STEP_KEYS, help="bu adımdan sonra dur")
+    ap.add_argument("--ref", choices=["segment", "speaker"], default="segment",
+                    help="segment: 3 sn'den uzun cümle kendi kaydını referans alır; speaker: hep konuşmacının ortak referansı")
     args = ap.parse_args()
 
     src = (ROOT / args.input).resolve()
@@ -161,10 +178,11 @@ def main() -> None:
             print(f"[{overall * 100:5.1f}%] {msg}", flush=True)
             last["key"] = key
 
-    pipe = default_pipeline(args.llm, args.batch, not args.no_background)
+    pipe = default_pipeline(args.llm, args.batch, not args.no_background, args.ref == "segment")
     print(f"== {args.input} → {args.target}  ({rel(out)})")
-    res = pipe.run(src, args.target, args.source, out, args.redo, progress)
-    print(f"Bitti: {', '.join(rel(out / f) for f in res['files'].values())}")
+    res = pipe.run(src, args.target, args.source, out, args.redo, progress, args.until)
+    files = res.get("files") if not args.until else None
+    print(f"Bitti: {', '.join(rel(out / f) for f in files.values())}" if files else f"Bitti ({args.until}): {rel(out)}")
 
 
 if __name__ == "__main__":

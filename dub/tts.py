@@ -1,8 +1,12 @@
 """Adım 4: ses klonlama. Her segmentin çevirisi, orijinal konuşmacının sesiyle OmniVoice'ta seslendirilir.
 
-1. Referanslar: her konuşmacının en uzun segmentleri ~10 sn olana kadar orijinal sesten kesilip aralarına kısa
-   sessizlik konarak birleştirilir; transkripti ASR'dan gelir. Tek segment 14 sn'yi aşıyorsa kelime
-   zaman damgalarından (mümkünse cümle sonunda) kesilir.
+1. Referanslar, transkriptleri ASR'dan gelir:
+   - Segment SELF_REF_MIN_SEC'ten uzunsa kendi orijinal kaydı referans olur; cümlenin duygusu ve tonlaması
+     da aktarılır.
+   - Daha kısa segmentler konuşmacının ortak referansını kullanır: en uzun segmentleri ~10 sn olana kadar
+     orijinal sesten kesilip aralarına kısa sessizlik konarak birleştirilir (kısa kayıt sesin karakterini
+     yakalamaya yetmiyor).
+   Referans 14 sn'yi aşıyorsa kelime zaman damgalarından (mümkünse cümle sonunda) kesilir.
 2. Seslendirme: her segment, orijinal süresi hedef verilerek üretilir (yerel testte EN → TR/DE/FR'de süre
    oranı medyan 1.02, segmentlerin %94–100'ü ±%15 içinde).
 """
@@ -22,6 +26,7 @@ REF_TARGET_SEC = 10.0   # konuşmacı referansının hedef uzunluğu
 REF_MAX_SEC = 14.0      # referansın üst sınırı
 REF_MIN_SEG_SEC = 1.5   # referansa alınacak segmentin en kısa süresi
 REF_GAP_SEC = 0.25      # referansta segmentler arasına konan sessizlik
+SELF_REF_MIN_SEC = 3.0  # bu süreden uzun segment kendi kaydını referans alır
 
 
 def _trim_by_words(seg: dict, words: list[dict], max_sec: float) -> dict:
@@ -54,12 +59,23 @@ def _pick_ref_segments(segs: list[dict], words: list[dict]) -> list[dict]:
     return sorted(chosen, key=lambda s: s["start"])
 
 
-def build_refs(source: Path, segments: list[dict], words: list[dict], out_dir: Path) -> dict:
-    """Konuşmacı başına referans ses (out_dir/<konuşmacı>.wav) ve transkripti."""
+def build_refs(source: Path, segments: list[dict], words: list[dict], out_dir: Path, self_ref: bool = True) -> dict:
+    """Referans sesler ve transkriptleri:
+    {"speakers": {konuşmacı: ortak referans}, "segments": {"<id>": kendi kaydı}} (SELF_REF_MIN_SEC'ten uzunlar).
+    self_ref=False ise segment referansı hazırlanmaz, her segment konuşmacının ortak referansını kullanır."""
     out_dir.mkdir(parents=True, exist_ok=True)
     audio = load_audio(source, REF_SR)
     gap = np.zeros(int(REF_GAP_SEC * REF_SR), dtype=np.float32)
-    refs = {}
+    refs = {"speakers": {}, "segments": {}}
+    for s in segments:
+        if not self_ref or s["duration"] < SELF_REF_MIN_SEC:
+            continue
+        r = _trim_by_words(s, words, REF_MAX_SEC) if s["duration"] > REF_MAX_SEC else s
+        pcm = audio[int(r["start"] * REF_SR):int((r["end"] + 0.05) * REF_SR)]
+        name = f"seg_{s['id']:03d}.wav"
+        sf.write(out_dir / name, pcm, REF_SR)
+        refs["segments"][str(s["id"])] = {"wav": f"{out_dir.name}/{name}", "text": r["text"],
+                                          "duration": round(len(pcm) / REF_SR, 2)}
     for spk in sorted({s["speaker"] for s in segments}):
         chosen = _pick_ref_segments([s for s in segments if s["speaker"] == spk], words)
         parts = []
@@ -69,7 +85,7 @@ def build_refs(source: Path, segments: list[dict], words: list[dict], out_dir: P
             parts.append(audio[int(s["start"] * REF_SR):int((s["end"] + 0.05) * REF_SR)])
         pcm = np.concatenate(parts)
         sf.write(out_dir / f"{spk}.wav", pcm, REF_SR)
-        refs[spk] = {"wav": f"{out_dir.name}/{spk}.wav", "text": " ".join(s["text"] for s in chosen),
+        refs["speakers"][spk] = {"wav": f"{out_dir.name}/{spk}.wav", "text": " ".join(s["text"] for s in chosen),
                      "duration": round(len(pcm) / REF_SR, 2), "segment_ids": [s["id"] for s in chosen]}
     return refs
 
@@ -112,15 +128,18 @@ class OmniVoiceTTS:
         out_dir.mkdir(parents=True, exist_ok=True)
         # Referans her çağrıda dosyadan verilir: create_voice_clone_prompt ile hazırlanan prompt bu kartta
         # segment başına ~20 kat yavaş üretti (1.6 sn'lik segment 99 sn'ye karşı 5 sn).
-        voices = {spk: {"ref_audio": str(job_dir / r["wav"]), "ref_text": r["text"]} for spk, r in refs.items()}
+        def voice(r: dict) -> dict:
+            return {"ref_audio": str(job_dir / r["wav"]), "ref_text": r["text"]}
 
         results = []
         for n, s in enumerate(segments, 1):
             t0 = time.time()
-            row = {"id": s["id"], "speaker": s["speaker"], "start": s["start"], "target_sec": s["duration"]}
+            ref = refs["segments"].get(str(s["id"])) or refs["speakers"][s["speaker"]]
+            row = {"id": s["id"], "speaker": s["speaker"], "start": s["start"], "target_sec": s["duration"],
+                   "ref": ref["wav"]}
             try:
                 wav = self.model.generate(text=s["translation"], language=lang, duration=s["duration"],
-                                          **voices[s["speaker"]])[0]
+                                          **voice(ref))[0]
                 wav = np.asarray(wav, dtype=np.float32).squeeze()
                 if not wav.size:
                     raise ValueError("boş çıktı")
