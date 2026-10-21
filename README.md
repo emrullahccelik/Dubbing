@@ -175,6 +175,14 @@ the web interface. Each step's result is saved as JSON; a step whose file alread
 | `refs/`, `tts/`, `separation/` | Reference audio, voiced segments, separated channels |
 | `final/dub.mp4` · `final/dub.m4a` · `final/dub.wav` | Result: video or audio, plus uncompressed audio |
 
+## Reports
+
+How the components were chosen:
+
+- [ASR evaluation](reports/asr-evaluation.md): 14 speech-to-text models on English and Turkish clips
+- [Voice cloning: local models](reports/voice-cloning-local.md): 5 open models on a 4 GB laptop GPU, four directions
+- [Voice cloning: cloud models](reports/voice-cloning-cloud.md): 5 larger models on a rented RTX 3090
+
 ## Notes
 
 - The OmniVoice weights are licensed for non-commercial use only (CC-BY-NC).
