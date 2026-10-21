@@ -10,12 +10,24 @@ Komut satırından ya da web arayüzünden kullanılabilir; Docker ile de çalı
 
 BBC Learning English'in 2,5 dakikalık bir bölümü (5 konuşmacı), İngilizceden üç dile:
 
-| | Dosya |
-| --- | --- |
-| Orijinal (İngilizce) | [samples/original_en.mp3](samples/original_en.mp3) |
-| Türkçe dublaj | [samples/dub_tr.mp3](samples/dub_tr.mp3) |
-| Almanca dublaj | [samples/dub_de.mp3](samples/dub_de.mp3) |
-| Fransızca dublaj | [samples/dub_fr.mp3](samples/dub_fr.mp3) |
+**Orijinal (İngilizce)**
+
+https://github.com/user-attachments/assets/27465ca9-900d-493f-8b22-fc0af6801f66
+
+**Türkçe dublaj**
+
+https://github.com/user-attachments/assets/6c9373d7-d54a-4742-8a65-69a980c1c7cb
+
+**Almanca dublaj**
+
+https://github.com/user-attachments/assets/815d7518-5b10-419c-9426-c24ae0e9ce3f
+
+**Fransızca dublaj**
+
+https://github.com/user-attachments/assets/a43ef6f5-c074-45f5-bcc6-6fdc66cc108a
+
+Yalnızca ses: [original_en.mp3](samples/original_en.mp3) · [dub_tr.mp3](samples/dub_tr.mp3) ·
+[dub_de.mp3](samples/dub_de.mp3) · [dub_fr.mp3](samples/dub_fr.mp3)
 
 Örnek bir satır:
 
